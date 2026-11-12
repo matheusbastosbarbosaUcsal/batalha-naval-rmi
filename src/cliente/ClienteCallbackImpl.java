@@ -8,19 +8,13 @@ import javax.swing.SwingUtilities;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 
-/**
- * Objeto remoto do cliente: recebe os callbacks do servidor.
- * As chamadas chegam em threads do RMI; como o Swing não é thread-safe,
- * toda atualização é repassada à EDT com SwingUtilities.invokeLater.
- */
 public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteCallbackInterface {
-
     private static final long serialVersionUID = 1L;
 
     private final transient ControladorCliente controlador;
 
     public ClienteCallbackImpl(ControladorCliente controlador) throws RemoteException {
-        super(0); // porta efêmera escolhida pelo sistema operacional
+        super(0);
         this.controlador = controlador;
     }
 
@@ -46,6 +40,5 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
 
     @Override
     public void ping() {
-        // Vazio de propósito: se a chamada chegar, o cliente está vivo.
     }
 }

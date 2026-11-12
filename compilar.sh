@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-# Compila o projeto em bin/ (requer JDK 21).
 set -e
 cd "$(dirname "$0")"
 

@@ -1,6 +1,5 @@
 package comum;
 
-/** Tipos de navio da frota e seus tamanhos (17 células no total). */
 public enum TipoNavio {
     PORTA_AVIOES(5),
     ENCOURACADO(4),

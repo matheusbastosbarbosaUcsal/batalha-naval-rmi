@@ -1,6 +1,5 @@
 package comum;
 
-/** Operação incompatível com a fase atual da partida. */
 public class FaseInvalidaException extends JogoException {
     private static final long serialVersionUID = 1L;
 

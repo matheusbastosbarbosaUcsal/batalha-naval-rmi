@@ -1,8 +1,6 @@
 package comum;
 
-/** Valores compartilhados por cliente e servidor. */
 public final class Constantes {
-
     public static final int PORTA_REGISTRY = 1099;
     public static final int PORTA_SERVICO = 1100;
     public static final String NOME_SERVICO = "BatalhaNavalService";

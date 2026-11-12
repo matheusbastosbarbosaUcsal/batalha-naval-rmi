@@ -6,14 +6,11 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Registros de jogadores e de partidas (acesso concorrente sem lock global). */
 public class GerenciadorPartidas {
-
     private final Map<String, Jogador> jogadores = new ConcurrentHashMap<>();
     private final Map<String, String> nomesEmUso = new ConcurrentHashMap<>();
     private final Map<String, Partida> partidas = new ConcurrentHashMap<>();
 
-    /** Reserva o nome de forma atômica. @return false se o nome já está em uso. */
     public boolean reservarNome(String nome, String jogadorId) {
         return nomesEmUso.putIfAbsent(nome.toLowerCase(), jogadorId) == null;
     }

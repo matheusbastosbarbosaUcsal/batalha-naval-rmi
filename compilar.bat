@@ -1,5 +1,4 @@
 @echo off
-rem Compila o projeto em bin\ (requer JDK 21).
 setlocal
 cd /d "%~dp0"
 

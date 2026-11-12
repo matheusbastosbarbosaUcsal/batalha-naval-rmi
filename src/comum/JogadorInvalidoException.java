@@ -1,6 +1,5 @@
 package comum;
 
-/** jogadorId não pertence à partida informada. */
 public class JogadorInvalidoException extends JogoException {
     private static final long serialVersionUID = 1L;
 

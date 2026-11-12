@@ -1,5 +1,4 @@
 @echo off
-rem Sobe o servidor. Uso: servidor.bat [IP_DESTA_MAQUINA]
 setlocal
 cd /d "%~dp0"
 

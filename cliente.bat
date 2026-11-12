@@ -1,5 +1,4 @@
 @echo off
-rem Abre um cliente. Uso: cliente.bat [IP_DO_SERVIDOR] [IP_DESTA_MAQUINA]
 setlocal
 cd /d "%~dp0"
 

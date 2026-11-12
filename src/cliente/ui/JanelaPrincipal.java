@@ -10,12 +10,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
 
-/**
- * Janela principal do cliente. Por enquanto só confirma a conexão;
- * as telas (conexão, lobby, posicionamento, batalha) entram nos próximos commits.
- */
 public class JanelaPrincipal extends JFrame {
-
     private static final long serialVersionUID = 1L;
 
     private final transient ControladorCliente controlador;
