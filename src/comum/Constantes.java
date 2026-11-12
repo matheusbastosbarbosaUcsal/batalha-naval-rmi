@@ -4,6 +4,8 @@ public final class Constantes {
     public static final int PORTA_REGISTRY = 1099;
     public static final int PORTA_SERVICO = 1100;
     public static final String NOME_SERVICO = "BatalhaNavalService";
+    public static final int PORTA_CALLBACK = 1101;
+    public static final int QUANTIDADE_PORTAS_CALLBACK = 10;
 
     public static final int TAMANHO_TABULEIRO = 10;
     public static final int TAMANHO_MAXIMO_NOME = 20;

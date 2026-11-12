@@ -14,6 +14,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ClienteTeste implements ClienteCallbackInterface {
+    static volatile int porta = 0;
+
     final String nome;
     final BatalhaNavalService servico;
     final ClienteCallbackInterface stub;
@@ -36,7 +38,7 @@ public class ClienteTeste implements ClienteCallbackInterface {
         this.servico = servico;
         this.nome = nome;
         this.stub = (ClienteCallbackInterface) UnicastRemoteObject.exportObject(
-                this, 0, null, new FabricaSocketServidor());
+                this, porta, null, new FabricaSocketServidor());
     }
 
     void entrar() throws RemoteException, NomeInvalidoException {

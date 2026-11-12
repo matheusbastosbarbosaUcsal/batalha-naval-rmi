@@ -12,10 +12,16 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
     private static final long serialVersionUID = 1L;
 
     private final transient ControladorCliente controlador;
+    private final int porta;
 
-    public ClienteCallbackImpl(ControladorCliente controlador) throws RemoteException {
-        super(0);
+    public ClienteCallbackImpl(ControladorCliente controlador, int porta) throws RemoteException {
+        super(porta);
         this.controlador = controlador;
+        this.porta = porta;
+    }
+
+    public int porta() {
+        return porta;
     }
 
     @Override

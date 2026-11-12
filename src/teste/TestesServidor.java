@@ -14,6 +14,7 @@ import comum.Navio;
 import comum.NomeInvalidoException;
 import comum.Orientacao;
 import comum.PartidaNaoEncontradaException;
+import comum.Rede;
 import comum.ResultadoTiro;
 import comum.TipoNavio;
 import comum.TipoResultado;
@@ -58,9 +59,35 @@ public class TestesServidor {
     }
 
     public static void main(String[] args) throws Exception {
-        Log.setAtivo(args.length > 0 && args[0].equals("--log"));
-        Servidor servidor = Servidor.iniciar(IP);
-        servico = (BatalhaNavalService) Naming.lookup(Constantes.urlServico(IP));
+        boolean log = false;
+        String ipServidor = null;
+        String meuIp = null;
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--log" -> log = true;
+                case "--servidor" -> ipServidor = valor(args, ++i);
+                case "--meu-ip" -> meuIp = valor(args, ++i);
+                default -> uso("opção desconhecida: " + args[i]);
+            }
+        }
+
+        boolean remoto = ipServidor != null;
+        String alvo = remoto ? ipServidor : IP;
+        Log.setAtivo(log);
+        Servidor servidor = null;
+        if (remoto) {
+            if (meuIp == null) {
+                meuIp = Rede.ipLocalPara(alvo);
+            }
+            System.setProperty("java.rmi.server.hostname", meuIp);
+            ClienteTeste.porta = Constantes.PORTA_CALLBACK;
+            System.out.println("Servidor remoto: " + alvo + " | este computador: " + meuIp
+                    + " (callbacks na porta " + Constantes.PORTA_CALLBACK + ")");
+        } else {
+            servidor = Servidor.iniciar(IP);
+            System.out.println("Servidor local: " + IP);
+        }
+        servico = (BatalhaNavalService) Naming.lookup(Constantes.urlServico(alvo));
 
         try {
             testeTabuleiro();
@@ -74,12 +101,27 @@ public class TestesServidor {
             falhas++;
             System.out.println("  [FALHOU] teste interrompido: " + e);
         } finally {
-            servidor.parar();
+            if (servidor != null) {
+                servidor.parar();
+            }
         }
 
         System.out.println();
         System.out.println(ok + " verificações ok, " + falhas + " falhas");
         System.exit(falhas == 0 ? 0 : 1);
+    }
+
+    private static String valor(String[] args, int i) {
+        if (i >= args.length) {
+            uso("faltou o valor de " + args[i - 1]);
+        }
+        return args[i];
+    }
+
+    private static void uso(String erro) {
+        System.out.println(erro);
+        System.out.println("uso: testar [--log] [--servidor IP] [--meu-ip IP]");
+        System.exit(2);
     }
 
     private static void testeTabuleiro() throws Exception {
