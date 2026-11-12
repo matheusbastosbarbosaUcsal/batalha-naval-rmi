@@ -9,56 +9,100 @@ import comum.ForaDoTurnoException;
 import comum.FrotaInvalidaException;
 import comum.JogadaInvalidaException;
 import comum.JogadorInvalidoException;
+import comum.MotivoFim;
 import comum.Navio;
 import comum.NomeInvalidoException;
 import comum.PartidaNaoEncontradaException;
 import comum.ResultadoTiro;
 
-import java.rmi.RemoteException;
-import java.rmi.server.UnicastRemoteObject;
 import java.util.List;
+import java.util.UUID;
 
-public class BatalhaNavalServiceImpl extends UnicastRemoteObject implements BatalhaNavalService {
-    private static final long serialVersionUID = 1L;
+public class BatalhaNavalServiceImpl implements BatalhaNavalService {
+    private final GerenciadorPartidas gerenciador = new GerenciadorPartidas();
+    private final Notificador notificador = new Notificador();
+    private final Lobby lobby = new Lobby(gerenciador, notificador);
+    private final Heartbeat heartbeat;
 
-    private final transient GerenciadorPartidas gerenciador = new GerenciadorPartidas();
-    private final transient Notificador notificador = new Notificador();
-    private final transient Lobby lobby = new Lobby(gerenciador, notificador);
-    private final transient Heartbeat heartbeat = new Heartbeat(gerenciador);
+    public BatalhaNavalServiceImpl() {
+        notificador.setAoFalhar(jogador -> desconectar(jogador, MotivoFim.DESCONEXAO));
+        heartbeat = new Heartbeat(gerenciador, jogador -> desconectar(jogador, MotivoFim.DESCONEXAO));
+    }
 
-    public BatalhaNavalServiceImpl() throws RemoteException {
-        super(Constantes.PORTA_SERVICO);
+    public void iniciar() {
         heartbeat.iniciar();
+    }
+
+    public void parar() {
+        heartbeat.parar();
+        notificador.encerrarTudo();
     }
 
     @Override
     public String entrarNoLobby(String nomeJogador, ClienteCallbackInterface callback)
-            throws RemoteException, NomeInvalidoException {
-        throw new UnsupportedOperationException("entrarNoLobby ainda não implementado");
+            throws NomeInvalidoException {
+        String nome = nomeJogador == null ? "" : nomeJogador.strip();
+        if (nome.isEmpty()) {
+            throw new NomeInvalidoException("Informe um nome.");
+        }
+        if (nome.length() > Constantes.TAMANHO_MAXIMO_NOME) {
+            throw new NomeInvalidoException(
+                    "O nome pode ter no máximo " + Constantes.TAMANHO_MAXIMO_NOME + " caracteres.");
+        }
+        if (callback == null) {
+            throw new IllegalArgumentException("Callback não informado.");
+        }
+
+        String jogadorId = UUID.randomUUID().toString();
+        if (!gerenciador.reservarNome(nome, jogadorId)) {
+            throw new NomeInvalidoException("O nome \"" + nome + "\" já está em uso.");
+        }
+        Jogador jogador = new Jogador(jogadorId, nome, callback);
+        gerenciador.registrarJogador(jogador);
+        lobby.entrar(jogador);
+        return jogadorId;
     }
 
     @Override
     public void posicionarFrota(String partidaId, String jogadorId, List<Navio> frota)
-            throws RemoteException, PartidaNaoEncontradaException, JogadorInvalidoException,
+            throws PartidaNaoEncontradaException, JogadorInvalidoException,
                    FaseInvalidaException, FrotaInvalidaException {
-        throw new UnsupportedOperationException("posicionarFrota ainda não implementado");
+        gerenciador.buscarPartida(partidaId).posicionarFrota(jogadorId, frota);
     }
 
     @Override
     public ResultadoTiro dispararTiro(String partidaId, String jogadorId, int x, int y)
-            throws RemoteException, PartidaNaoEncontradaException, JogadorInvalidoException,
+            throws PartidaNaoEncontradaException, JogadorInvalidoException,
                    FaseInvalidaException, ForaDoTurnoException, JogadaInvalidaException {
-        throw new UnsupportedOperationException("dispararTiro ainda não implementado");
+        return gerenciador.buscarPartida(partidaId).processarTiro(jogadorId, x, y);
     }
 
     @Override
     public EstadoPartida obterEstado(String partidaId, String jogadorId)
-            throws RemoteException, PartidaNaoEncontradaException, JogadorInvalidoException {
-        throw new UnsupportedOperationException("obterEstado ainda não implementado");
+            throws PartidaNaoEncontradaException, JogadorInvalidoException {
+        return gerenciador.buscarPartida(partidaId).estadoPara(jogadorId);
     }
 
     @Override
-    public void sair(String jogadorId) throws RemoteException {
-        throw new UnsupportedOperationException("sair ainda não implementado");
+    public void sair(String jogadorId) {
+        Jogador jogador = gerenciador.buscarJogador(jogadorId);
+        if (jogador != null) {
+            desconectar(jogador, MotivoFim.DESISTENCIA);
+        }
+    }
+
+    private void desconectar(Jogador jogador, MotivoFim motivo) {
+        if (!jogador.marcarDesconectado()) {
+            return;
+        }
+        Log.info("%s saiu (%s)", jogador.nome(), motivo);
+        lobby.remover(jogador);
+
+        Partida partida = gerenciador.partidaOuNull(jogador.partidaId());
+        if (partida != null) {
+            partida.encerrarPorAbandono(jogador.id(), motivo);
+        }
+        gerenciador.removerJogador(jogador);
+        notificador.encerrarFila(jogador);
     }
 }
