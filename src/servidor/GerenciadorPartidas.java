@@ -36,8 +36,12 @@ public class GerenciadorPartidas {
         partidas.put(partida.id(), partida);
     }
 
+    public Partida partidaOuNull(String partidaId) {
+        return partidaId == null ? null : partidas.get(partidaId);
+    }
+
     public Partida buscarPartida(String partidaId) throws PartidaNaoEncontradaException {
-        Partida partida = partidaId == null ? null : partidas.get(partidaId);
+        Partida partida = partidaOuNull(partidaId);
         if (partida == null) {
             throw new PartidaNaoEncontradaException("Partida não encontrada.");
         }

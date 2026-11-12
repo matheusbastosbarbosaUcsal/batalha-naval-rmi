@@ -14,7 +14,21 @@ public class Lobby {
     }
 
     public synchronized void entrar(Jogador jogador) {
-        throw new UnsupportedOperationException("Lobby.entrar ainda não implementado");
+        fila.removeIf(j -> !j.estaConectado());
+        fila.addLast(jogador);
+        Log.info("%s entrou no lobby (%d na fila)", jogador.nome(), fila.size());
+
+        if (fila.size() >= 2) {
+            Jogador a = fila.pollFirst();
+            Jogador b = fila.pollFirst();
+            Partida partida = new Partida(a, b, notificador, gerenciador);
+            a.setPartidaId(partida.id());
+            b.setPartidaId(partida.id());
+            gerenciador.registrarPartida(partida);
+            Log.info("partida=%s criada: %s x %s", partida.id().substring(0, 8), a.nome(), b.nome());
+            notificador.partidaEncontrada(a, partida.id(), b.nome());
+            notificador.partidaEncontrada(b, partida.id(), a.nome());
+        }
     }
 
     public synchronized boolean remover(Jogador jogador) {
