@@ -10,6 +10,7 @@ import comum.JogadorInvalidoException;
 import comum.MotivoFim;
 import comum.Navio;
 import comum.ResultadoTiro;
+import comum.TipoResultado;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,6 +19,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class Partida {
     private final String id = UUID.randomUUID().toString();
+    // um lock por partida, então partidas diferentes não esperam uma pela outra.
+    // o true deixa o lock justo: quem pediu primeiro entra primeiro
     private final ReentrantLock lock = new ReentrantLock(true);
 
     private final Jogador[] jogadores;
@@ -27,6 +30,8 @@ public class Partida {
 
     private Fase fase = Fase.POSICIONAMENTO;
     private int vez;
+    // sobe a cada jogada aceita. vai junto no EstadoPartida como versão,
+    // e o cliente usa pra jogar fora um estado mais velho que chegou atrasado
     private long numeroJogada;
     private String vencedorId;
 
@@ -54,6 +59,8 @@ public class Partida {
             Log.info("partida=%s v=%d frota de %s posicionada", idCurto(), numeroJogada, jogadores[i].nome());
 
             if (tabuleiros[1 - i].frotaPosicionada()) {
+                // os avisos não são enviados aqui dentro do lock: o notificador só põe na fila
+                // de cada jogador e outra thread faz a chamada. assim um cliente lento não segura a partida
                 vez = ThreadLocalRandom.current().nextInt(2);
                 fase = Fase.BATALHA;
                 String daVez = jogadores[vez].id();
@@ -74,6 +81,8 @@ public class Partida {
         try {
             int i = indiceDo(jogadorId);
             exigirFase(Fase.BATALHA);
+            // a conferência da vez e o tiro acontecem dentro do mesmo lock,
+            // então dois tiros ao mesmo tempo nunca passam os dois
             if (i != vez) {
                 throw new ForaDoTurnoException("Não é a sua vez.");
             }
@@ -87,10 +96,15 @@ public class Partida {
             if (resultado.fimDeJogo()) {
                 notificador.tiroSofrido(adversario, x, y, resultado, null);
                 encerrar(jogadorId, MotivoFim.FROTA_DESTRUIDA);
-            } else {
-                vez = 1 - i;
-                notificador.tiroSofrido(adversario, x, y, resultado, adversario.id());
+                return resultado;
             }
+
+            // regra do tiro em sequência: quem acerta continua jogando,
+            // a vez só passa para o outro quando o tiro cai na água
+            if (resultado.tipo() == TipoResultado.AGUA) {
+                vez = 1 - i;
+            }
+            notificador.tiroSofrido(adversario, x, y, resultado, jogadores[vez].id());
             return resultado;
         } finally {
             lock.unlock();
@@ -122,6 +136,8 @@ public class Partida {
         }
     }
 
+    // tira a partida e os dois jogadores do servidor na hora, pra liberar os nomes
+    // e não sobrar partida esquecida na memória
     private void encerrar(String vencedor, MotivoFim motivo) {
         fase = Fase.ENCERRADA;
         vencedorId = vencedor;

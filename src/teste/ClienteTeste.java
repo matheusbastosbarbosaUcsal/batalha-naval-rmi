@@ -5,6 +5,7 @@ import comum.ClienteCallbackInterface;
 import comum.MotivoFim;
 import comum.NomeInvalidoException;
 import comum.ResultadoTiro;
+import comum.TipoResultado;
 import servidor.FabricaSocketServidor;
 
 import java.rmi.NoSuchObjectException;
@@ -34,6 +35,7 @@ public class ClienteTeste implements ClienteCallbackInterface {
     final AtomicInteger tirosSofridos = new AtomicInteger();
     final AtomicInteger turnosErrados = new AtomicInteger();
 
+    // cliente falso usado só nos testes: faz o papel da tela e conta o que o servidor mandou
     ClienteTeste(BatalhaNavalService servico, String nome) throws RemoteException {
         this.servico = servico;
         this.nome = nome;
@@ -77,6 +79,7 @@ public class ClienteTeste implements ClienteCallbackInterface {
 
     @Override
     public void notificarTiroSofrido(int x, int y, ResultadoTiro resultado, String novoTurno) {
+        // no teste do cliente travado o callback fica parado aqui de propósito
         CountDownLatch t = trava;
         if (t != null) {
             try {
@@ -86,7 +89,9 @@ public class ClienteTeste implements ClienteCallbackInterface {
             }
         }
         tirosSofridos.incrementAndGet();
-        if (novoTurno != null && !novoTurno.equals(jogadorId)) {
+        // se o tiro foi na água a vez tem que vir pra mim, se foi acerto continua com quem atirou
+        boolean deveSerMinhaVez = resultado.tipo() == TipoResultado.AGUA;
+        if (novoTurno != null && novoTurno.equals(jogadorId) != deveSerMinhaVez) {
             turnosErrados.incrementAndGet();
         }
     }

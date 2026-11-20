@@ -213,22 +213,31 @@ public class TestesServidor {
                 estado.meuTabuleiro()[0][0] == EstadoCelula.NAVIO
                         && estado.tabuleiroAdversario()[0][0] == EstadoCelula.DESCONHECIDA);
 
-        List<int[]> agua = celulasDeAgua();
-        boolean repetidoRecusado = false;
+        servico.dispararTiro(partida, primeiro.jogadorId, 5, 0);
+        checar("tiro na água passa a vez para o adversário",
+                lanca(ForaDoTurnoException.class, () -> servico.dispararTiro(partida, primeiro.jogadorId, 6, 0)));
+        servico.dispararTiro(partida, segundo.jogadorId, 5, 0);
+
+        int[] primeiraCelula = CELULAS_DA_FROTA[0];
+        servico.dispararTiro(partida, primeiro.jogadorId, primeiraCelula[0], primeiraCelula[1]);
+        checar("acerto mantém a vez com quem atirou",
+                lanca(ForaDoTurnoException.class, () -> servico.dispararTiro(partida, segundo.jogadorId, 6, 0)));
+        checar("tiro repetido é recusado e a vez continua com o jogador",
+                lanca(JogadaInvalidaException.class,
+                        () -> servico.dispararTiro(partida, primeiro.jogadorId, primeiraCelula[0], primeiraCelula[1])));
+
+        // daqui pra frente só tem acerto, então o primeiro tem que conseguir atirar até o fim sem perder a vez
         ResultadoTiro ultimo = null;
-        for (int k = 0; k < CELULAS_DA_FROTA.length; k++) {
-            int[] c = CELULAS_DA_FROTA[k];
-            ultimo = servico.dispararTiro(partida, primeiro.jogadorId, c[0], c[1]);
-            if (k < CELULAS_DA_FROTA.length - 1) {
-                int[] a = agua.get(k);
-                servico.dispararTiro(partida, segundo.jogadorId, a[0], a[1]);
-                if (k == 0) {
-                    repetidoRecusado = lanca(JogadaInvalidaException.class,
-                            () -> servico.dispararTiro(partida, primeiro.jogadorId, c[0], c[1]));
-                }
+        boolean sequenciaAceita = true;
+        try {
+            for (int k = 1; k < CELULAS_DA_FROTA.length; k++) {
+                int[] c = CELULAS_DA_FROTA[k];
+                ultimo = servico.dispararTiro(partida, primeiro.jogadorId, c[0], c[1]);
             }
+        } catch (ForaDoTurnoException e) {
+            sequenciaAceita = false;
         }
-        checar("tiro repetido é recusado e a vez continua com o jogador", repetidoRecusado);
+        checar("quem acerta atira de novo até afundar a frota inteira", sequenciaAceita);
         checar("último tiro afunda a frota e encerra o jogo",
                 ultimo != null && ultimo.fimDeJogo() && ultimo.tipo() == TipoResultado.AFUNDOU);
 
@@ -237,8 +246,10 @@ public class TestesServidor {
         checar("os dois recebem fimDePartida com o mesmo vencedor (FROTA_DESTRUIDA)",
                 primeiro.jogadorId.equals(primeiro.vencedor) && primeiro.jogadorId.equals(segundo.vencedor)
                         && segundo.motivo == MotivoFim.FROTA_DESTRUIDA);
-        checar("todas as notificações de tiro chegaram (17 e 16)",
-                segundo.tirosSofridos.get() == 17 && primeiro.tirosSofridos.get() == 16);
+        checar("todas as notificações de tiro chegaram (18 e 1)",
+                segundo.tirosSofridos.get() == 18 && primeiro.tirosSofridos.get() == 1);
+        checar("cada notificação trouxe o jogador da vez certo",
+                primeiro.turnosErrados.get() == 0 && segundo.turnosErrados.get() == 0);
         checar("partida encerrada é removida do servidor",
                 lanca(PartidaNaoEncontradaException.class, () -> servico.obterEstado(partida, primeiro.jogadorId)));
 
@@ -264,18 +275,27 @@ public class TestesServidor {
         } catch (Throwable t) {
             erro = t;
         }
-        checar("classe fora do jogo é recusada antes de ser criada",
-                erro instanceof RemoteException && temCausa(erro, InvalidClassException.class));
+        // sem o filtro o objeto chegaria no método e a resposta seria PartidaNaoEncontradaException.
+        // com o filtro a chamada falha antes, no RMI. em rede de verdade às vezes o servidor fecha a
+        // conexão antes da resposta chegar, por isso aceita a InvalidClassException ou a conexão encerrada
+        if (erro != null && !temCausa(erro, InvalidClassException.class)) {
+            System.out.println("    recusada com: " + erro.getClass().getSimpleName()
+                    + (erro.getCause() != null ? " <- " + erro.getCause().getClass().getSimpleName() : ""));
+        }
+        checar("classe fora do jogo é recusada antes de chegar no método", erro instanceof RemoteException);
         checar("o servidor continua respondendo depois da recusa",
                 lanca(PartidaNaoEncontradaException.class, () -> servico.obterEstado("x", "y")));
     }
 
     private static void testeEstresseDeTurno() throws Exception {
         titulo("4. Estresse de turno: 50 threads por jogador atirando ao mesmo tempo");
+        // 100 threads atirando ao mesmo tempo na mesma partida. se o lock da Partida não funcionasse
+        // ia aparecer tiro aceito fora da vez, célula aceita duas vezes ou notificação faltando
         ClienteTeste[] par = parEmBatalha("Estresse");
         int threadsPorJogador = 50;
 
         AtomicInteger[] aceitos = { new AtomicInteger(), new AtomicInteger() };
+        AtomicInteger[] naAgua = { new AtomicInteger(), new AtomicInteger() };
         List<Set<Integer>> alvos = List.of(ConcurrentHashMap.newKeySet(), ConcurrentHashMap.newKeySet());
         AtomicInteger aceitosRepetidos = new AtomicInteger();
         AtomicInteger foraDoTurno = new AtomicInteger();
@@ -302,6 +322,9 @@ public class TestesServidor {
                         try {
                             ResultadoTiro r = servico.dispararTiro(cliente.partidaId, cliente.jogadorId, x, y);
                             aceitos[jogador].incrementAndGet();
+                            if (r.tipo() == TipoResultado.AGUA) {
+                                naAgua[jogador].incrementAndGet();
+                            }
                             if (!alvos.get(jogador).add(y * 10 + x)) {
                                 aceitosRepetidos.incrementAndGet();
                             }
@@ -334,15 +357,20 @@ public class TestesServidor {
         aguardar(par[1].fim);
         int a = aceitos[0].get();
         int b = aceitos[1].get();
-        System.out.printf("    tiros aceitos: %d e %d | recusados fora da vez: %d | célula repetida: %d | %d ms%n",
-                a, b, foraDoTurno.get(), celulaRepetida.get(), ms);
+        int diferencaAgua = naAgua[0].get() - naAgua[1].get();
+        System.out.printf("    tiros aceitos: %d e %d (na água: %d e %d) | recusados fora da vez: %d | célula repetida: %d | %d ms%n",
+                a, b, naAgua[0].get(), naAgua[1].get(), foraDoTurno.get(), celulaRepetida.get(), ms);
 
+        // cada vez de jogar termina com um tiro na água, menos a última, que termina no tiro que ganha.
+        // então quem começou tem o mesmo número de tiros na água se ganhou, ou um a mais se perdeu
+        boolean comecouGanhou = par[0].jogadorId.equals(par[0].vencedor);
         checar("houve disputa de verdade (tiros recusados por estar fora da vez)", foraDoTurno.get() > 0);
-        checar("os turnos alternaram certinho (quem começou tem 0 ou 1 tiro a mais)", a - b == 0 || a - b == 1);
+        checar("a vez só trocou nos tiros na água",
+                (comecouGanhou && diferencaAgua == 0) || (!comecouGanhou && diferencaAgua == 1));
         checar("nenhuma célula foi aceita duas vezes", aceitosRepetidos.get() == 0);
         checar("cada tiro aceito gerou exatamente uma notificação no adversário",
                 par[1].tirosSofridos.get() == a && par[0].tirosSofridos.get() == b);
-        checar("toda notificação passou a vez para quem a recebeu",
+        checar("toda notificação trouxe o jogador da vez certo",
                 par[0].turnosErrados.get() == 0 && par[1].turnosErrados.get() == 0);
         checar("um único vencedor, igual para os dois",
                 par[0].vencedor != null && par[0].vencedor.equals(par[1].vencedor)
@@ -419,6 +447,8 @@ public class TestesServidor {
 
     private static void testeClienteTravado() throws Exception {
         titulo("7. Cliente travado não trava o servidor");
+        // o callback do segundo jogador nunca responde. o tiro do primeiro tem que voltar na hora
+        // (o aviso vai por outra thread) e o servidor derruba o travado pelo responseTimeout de 5 s
         ClienteTeste[] par = parEmBatalha("Travado");
         CountDownLatch trava = new CountDownLatch(1);
         par[1].trava = trava;
@@ -461,22 +491,6 @@ public class TestesServidor {
                 new Navio(TipoNavio.CRUZADOR, 9, 0, Orientacao.VERTICAL),
                 new Navio(TipoNavio.SUBMARINO, 5, 5, Orientacao.VERTICAL),
                 new Navio(TipoNavio.CONTRATORPEDEIRO, 8, 9, Orientacao.HORIZONTAL));
-    }
-
-    private static List<int[]> celulasDeAgua() {
-        boolean[][] ocupada = new boolean[10][10];
-        for (int[] c : CELULAS_DA_FROTA) {
-            ocupada[c[1]][c[0]] = true;
-        }
-        List<int[]> agua = new ArrayList<>();
-        for (int y = 0; y < 10; y++) {
-            for (int x = 0; x < 10; x++) {
-                if (!ocupada[y][x]) {
-                    agua.add(new int[] { x, y });
-                }
-            }
-        }
-        return agua;
     }
 
     private static void aguardar(CountDownLatch latch) throws InterruptedException {
