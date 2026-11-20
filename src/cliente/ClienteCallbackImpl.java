@@ -24,6 +24,9 @@ public class ClienteCallbackImpl extends UnicastRemoteObject implements ClienteC
         return porta;
     }
 
+    // esses métodos são chamados pelo servidor numa thread do RMI, não na thread da tela.
+    // o Swing só pode ser mexido na thread da tela, por isso tudo vai pelo invokeLater.
+    // e o método retorna na hora, então o servidor não fica esperando a tela atualizar
     @Override
     public void partidaEncontrada(String partidaId, String nomeAdversario) {
         SwingUtilities.invokeLater(() -> controlador.aoEncontrarPartida(partidaId, nomeAdversario));

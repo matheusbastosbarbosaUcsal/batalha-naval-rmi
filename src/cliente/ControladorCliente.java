@@ -1,13 +1,28 @@
 package cliente;
 
 import cliente.ui.JanelaPrincipal;
-import comum.*;
+import comum.BatalhaNavalService;
+import comum.ClienteCallbackInterface;
+import comum.Fase;
+import comum.ForaDoTurnoException;
+import comum.JogadaInvalidaException;
+import comum.JogoException;
+import comum.MotivoFim;
+import comum.Navio;
+import comum.ResultadoTiro;
 
-import javax.swing.JOptionPane;
-import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import java.rmi.RemoteException;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 public class ControladorCliente {
+    @FunctionalInterface
+    private interface ChamadaRemota<T> {
+        T executar() throws Exception;
+    }
+
     private final BatalhaNavalService servico;
     private ClienteCallbackInterface callback;
     private JanelaPrincipal janela;
@@ -15,110 +30,221 @@ public class ControladorCliente {
     private String jogadorId;
     private String partidaId;
     private String nomeAdversario;
-    private String meuNome;
+    private Fase fase;
+    private long versaoNaTela = -1;
+    private boolean atirando;
 
     public ControladorCliente(BatalhaNavalService servico) {
         this.servico = servico;
     }
 
-    public void setCallback(ClienteCallbackInterface callback) { this.callback = callback; }
-    public void setJanela(JanelaPrincipal janela) { this.janela = janela; }
+    public void setCallback(ClienteCallbackInterface callback) {
+        this.callback = callback;
+    }
 
-    public String getJogadorId() { return jogadorId; }
-    public String getPartidaId() { return partidaId; }
-    public String getNomeAdversario() { return nomeAdversario; }
+    public void setJanela(JanelaPrincipal janela) {
+        this.janela = janela;
+    }
 
     public void entrarNoLobby(String nome) {
-        this.meuNome = nome;
-        new Thread(() -> {
-            try {
-                String id = servico.entrarNoLobby(nome, callback);
-                this.jogadorId = id;
-                SwingUtilities.invokeLater(() -> janela.mostrarAguardando("Conectado! Aguardando oponente no lobby..."));
-            } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(janela,
-                        "Erro ao entrar no lobby: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE));
-            }
-        }).start();
+        janela.setEntrando(true);
+        emSegundoPlano(() -> servico.entrarNoLobby(nome, callback),
+                id -> {
+                    jogadorId = id;
+                    janela.setEntrando(false);
+                    // o aviso de partida encontrada pode chegar antes dessa resposta.
+                    // se chegou, a tela de posicionamento já está aberta e não pode ser trocada
+                    if (partidaId == null) {
+                        janela.mostrarAguardando("Procurando um adversário...");
+                    }
+                },
+                erro -> {
+                    janela.setEntrando(false);
+                    janela.mostrarErro(mensagem(erro));
+                });
     }
 
-    public void posicionarFrota(List<Navio> frota) {
-        new Thread(() -> {
-            try {
-                servico.posicionarFrota(partidaId, jogadorId, frota);
-                SwingUtilities.invokeLater(() -> janela.mostrarAguardandoBatalha("Frota enviada! Aguardando oponente posicionar..."));
-            } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(janela,
-                        "Erro ao posicionar frota: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE));
-            }
-        }).start();
+    public void enviarFrota(List<Navio> frota) {
+        String partida = partidaId;
+        janela.setEnviandoFrota(true);
+        emSegundoPlano(() -> {
+                    servico.posicionarFrota(partida, jogadorId, frota);
+                    return null;
+                },
+                ok -> {
+                    // mesmo caso do lobby: se eu fui o segundo a mandar, o inicioDaBatalha pode ter chegado antes
+                    if (partida.equals(partidaId) && fase == Fase.POSICIONAMENTO) {
+                        janela.mostrarAguardando("Frota enviada. Esperando " + nomeAdversario + " posicionar a dele...");
+                    }
+                },
+                erro -> {
+                    janela.setEnviandoFrota(false);
+                    janela.mostrarErro(mensagem(erro));
+                });
     }
 
-    public void dispararTiro(int x, int y) {
-        new Thread(() -> {
-            try {
-                ResultadoTiro res = servico.dispararTiro(partidaId, jogadorId, x, y);
-                EstadoPartida estado = servico.obterEstado(partidaId, jogadorId);
-                boolean minhaVez = jogadorId.equals(estado.jogadorDaVezId());
-                SwingUtilities.invokeLater(() -> janela.atualizarEstadoBatalha(estado, minhaVez, "Tiro em (" + x + "," + y + "): " + res.tipo()));
-            } catch (ForaDoTurnoException e) {
-                SwingUtilities.invokeLater(() -> janela.adicionarLog("Não é a sua vez!"));
-            } catch (JogadaInvalidaException e) {
-                SwingUtilities.invokeLater(() -> janela.adicionarLog("Jogada inválida: " + e.getMessage()));
-            } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(janela,
-                        "Erro ao disparar: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE));
-            }
-        }).start();
+    public void atirar(int x, int y) {
+        if (fase != Fase.BATALHA || atirando) {
+            return;
+        }
+        atirando = true;
+        String partida = partidaId;
+        emSegundoPlano(() -> servico.dispararTiro(partida, jogadorId, x, y),
+                resultado -> {
+                    atirando = false;
+                    if (!partida.equals(partidaId)) {
+                        return;
+                    }
+                    janela.registrarMeuTiro(resultado, nomeAdversario);
+                    // no último tiro o servidor já apagou a partida, então não tem estado pra buscar.
+                    // o fimDePartida chega logo em seguida pelo callback
+                    if (!resultado.fimDeJogo()) {
+                        atualizarEstado();
+                    }
+                },
+                erro -> {
+                    atirando = false;
+                    if (erro instanceof ForaDoTurnoException) {
+                        janela.adicionarLog("Ainda não é a sua vez.");
+                    } else if (erro instanceof JogadaInvalidaException) {
+                        janela.adicionarLog(erro.getMessage());
+                    } else {
+                        janela.mostrarErro(mensagem(erro));
+                    }
+                });
     }
 
-    public void sair() {
-        if (jogadorId != null) {
+    public void desistir() {
+        String id = jogadorId;
+        limpar();
+        janela.mostrarLobby();
+        if (id != null) {
+            emSegundoPlano(() -> {
+                servico.sair(id);
+                return null;
+            }, ok -> { }, erro -> { });
+        }
+    }
+
+    public void fecharPrograma() {
+        String id = jogadorId;
+        if (id != null) {
+            // avisa o servidor antes de fechar, senão o adversário só fica sabendo pelo heartbeat
+            Thread aviso = new Thread(() -> {
+                try {
+                    servico.sair(id);
+                } catch (RemoteException ignorada) {
+                }
+            });
+            aviso.start();
             try {
-                servico.sair(jogadorId);
-            } catch (Exception ignored) {
+                aviso.join(2_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
-        this.jogadorId = null;
-        this.partidaId = null;
-        this.nomeAdversario = null;
-        SwingUtilities.invokeLater(() -> janela.mostrarLobby());
+        System.exit(0);
     }
 
-    public void aoEncontrarPartida(String partidaId, String nomeAdversario) {
+    void aoEncontrarPartida(String partidaId, String nomeAdversario) {
         this.partidaId = partidaId;
         this.nomeAdversario = nomeAdversario;
-        janela.mostrarTelaPosicionamento(nomeAdversario);
+        fase = Fase.POSICIONAMENTO;
+        versaoNaTela = -1;
+        janela.mostrarPosicionamento(nomeAdversario);
     }
 
-    public void aoIniciarBatalha(String jogadorDaVezId) {
-        try {
-            EstadoPartida estado = servico.obterEstado(partidaId, jogadorId);
-            boolean minhaVez = jogadorId.equals(jogadorDaVezId);
-            janela.mostrarTelaBatalha(estado, minhaVez);
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(janela, "Erro ao iniciar batalha: " + e.getMessage(), "Erro", JOptionPane.ERROR_MESSAGE);
+    void aoIniciarBatalha(String jogadorDaVezId) {
+        if (fase != Fase.POSICIONAMENTO) {
+            return;
+        }
+        fase = Fase.BATALHA;
+        janela.iniciarBatalha(nomeAdversario, jogadorDaVezId.equals(jogadorId));
+        atualizarEstado();
+    }
+
+    void aoSofrerTiro(int x, int y, ResultadoTiro resultado, String novoTurno) {
+        if (fase != Fase.BATALHA) {
+            return;
+        }
+        janela.registrarTiroSofrido(x, y, resultado, nomeAdversario);
+        if (!resultado.fimDeJogo()) {
+            janela.setTurno(jogadorId != null && jogadorId.equals(novoTurno));
+            atualizarEstado();
         }
     }
 
-    public void aoSofrerTiro(int x, int y, ResultadoTiro resultado, String novoTurno) {
-        try {
-            EstadoPartida estado = servico.obterEstado(partidaId, jogadorId);
-            boolean minhaVez = jogadorId.equals(novoTurno);
-            String msg = "Adversário atirou em (" + x + "," + y + ") -> " + resultado.tipo();
-            if (resultado.navioAfundado() != null) {
-                msg += " (Afundou " + resultado.navioAfundado() + "!)";
-            }
-            janela.atualizarEstadoBatalha(estado, minhaVez, msg);
-        } catch (Exception e) {
-            e.printStackTrace();
+    void aoTerminarPartida(String vencedorId, MotivoFim motivo) {
+        if (fase == null) {
+            return;
         }
-    }
-
-    public void aoTerminarPartida(String vencedorId, MotivoFim motivo) {
         boolean venci = jogadorId != null && jogadorId.equals(vencedorId);
-        janela.mostrarFimDePartida(venci, motivo, nomeAdversario);
-        this.partidaId = null;
-        this.nomeAdversario = null;
+        String adversario = nomeAdversario;
+        fase = Fase.ENCERRADA;
+        janela.mostrarFimDePartida(venci, motivo, adversario);
+        // quando a partida acaba o servidor já tira o jogador da lista, por isso não precisa chamar sair()
+        limpar();
+        janela.mostrarLobby();
+    }
+
+    private void atualizarEstado() {
+        String partida = partidaId;
+        String jogador = jogadorId;
+        emSegundoPlano(() -> servico.obterEstado(partida, jogador),
+                estado -> {
+                    // as respostas do obterEstado podem chegar fora de ordem quando os tiros são rápidos.
+                    // a versão vem do servidor e só aumenta, então uma resposta mais velha é ignorada
+                    if (!partida.equals(partidaId) || fase != Fase.BATALHA || estado.versao() < versaoNaTela) {
+                        return;
+                    }
+                    versaoNaTela = estado.versao();
+                    janela.mostrarEstado(estado, jogador.equals(estado.jogadorDaVezId()));
+                },
+                erro -> {
+                    if (erro instanceof RemoteException) {
+                        janela.mostrarErro(mensagem(erro));
+                    }
+                });
+    }
+
+    private void limpar() {
+        jogadorId = null;
+        partidaId = null;
+        nomeAdversario = null;
+        fase = null;
+        versaoNaTela = -1;
+        atirando = false;
+    }
+
+    // toda chamada ao servidor roda fora da thread da tela, senão a janela congela esperando a rede.
+    // o done() do SwingWorker já volta pra thread da tela, então ali pode mexer nos componentes
+    private <T> void emSegundoPlano(ChamadaRemota<T> chamada, Consumer<T> aoTerminar, Consumer<Exception> aoFalhar) {
+        new SwingWorker<T, Void>() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return chamada.executar();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    aoTerminar.accept(get());
+                } catch (ExecutionException e) {
+                    aoFalhar.accept(e.getCause() instanceof Exception causa ? causa : e);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }.execute();
+    }
+
+    private static String mensagem(Exception erro) {
+        if (erro instanceof JogoException) {
+            return erro.getMessage();
+        }
+        if (erro instanceof RemoteException) {
+            return "Sem comunicação com o servidor (" + erro.getClass().getSimpleName() + ").";
+        }
+        return erro.toString();
     }
 }

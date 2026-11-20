@@ -16,6 +16,7 @@ public class ClienteMain {
         String ipServidor = args.length > 0 ? args[0] : "127.0.0.1";
         String meuIp = args.length > 1 ? args[1] : Rede.ipLocalPara(ipServidor);
 
+        // o servidor usa esse IP pra chamar o cliente de volta. se estiver errado os avisos não chegam
         System.setProperty("java.rmi.server.hostname", meuIp);
 
         BatalhaNavalService servico =
@@ -35,6 +36,8 @@ public class ClienteMain {
         });
     }
 
+    // porta fixa de 1101 a 1110 pra dar pra liberar no firewall. se a primeira já estiver em uso
+    // (outro cliente aberto no mesmo PC), tenta a próxima
     private static ClienteCallbackImpl exportarCallback(ControladorCliente controlador) throws RemoteException {
         ExportException ultimoErro = null;
         int ultima = Constantes.PORTA_CALLBACK + Constantes.QUANTIDADE_PORTAS_CALLBACK;
