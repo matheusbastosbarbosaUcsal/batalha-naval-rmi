@@ -11,6 +11,8 @@ public class Jogador {
 
     private volatile String partidaId;
 
+    // o heartbeat e o notificador podem perceber a mesma queda ao mesmo tempo.
+    // com o compareAndSet só um deles consegue marcar, então a desconexão é tratada uma vez só
     private final AtomicBoolean conectado = new AtomicBoolean(true);
 
     public Jogador(String id, String nome, ClienteCallbackInterface callback) {

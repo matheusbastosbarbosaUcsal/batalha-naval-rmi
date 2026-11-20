@@ -4,6 +4,8 @@ import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.util.List;
 
+// interface remota do servidor, é o que o cliente pega no Registry.
+// todo método declara RemoteException porque qualquer chamada pode falhar na rede
 public interface BatalhaNavalService extends Remote {
     String entrarNoLobby(String nomeJogador, ClienteCallbackInterface callback)
             throws RemoteException, NomeInvalidoException;

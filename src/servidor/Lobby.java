@@ -13,11 +13,13 @@ public class Lobby {
         this.notificador = notificador;
     }
 
+    // synchronized pra dois jogadores que entram ao mesmo tempo não pegarem o mesmo adversário
     public synchronized void entrar(Jogador jogador) {
         fila.removeIf(j -> !j.estaConectado());
         fila.addLast(jogador);
         Log.info("%s entrou no lobby (%d na fila)", jogador.nome(), fila.size());
 
+        // fila FIFO: os dois que estão esperando há mais tempo formam a partida
         if (fila.size() >= 2) {
             Jogador a = fila.pollFirst();
             Jogador b = fila.pollFirst();

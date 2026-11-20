@@ -53,6 +53,8 @@ public class BatalhaNavalServiceImpl implements BatalhaNavalService {
             throw new IllegalArgumentException("Callback não informado.");
         }
 
+        // o id é sorteado aqui no servidor. o cliente nunca escolhe o próprio id,
+        // então ninguém consegue se passar pelo outro jogador
         String jogadorId = UUID.randomUUID().toString();
         if (!gerenciador.reservarNome(nome, jogadorId)) {
             throw new NomeInvalidoException("O nome \"" + nome + "\" já está em uso.");
@@ -91,6 +93,7 @@ public class BatalhaNavalServiceImpl implements BatalhaNavalService {
         }
     }
 
+    // usado pelo sair(), pelo heartbeat e pelo notificador. quem chegar depois do primeiro para aqui
     private void desconectar(Jogador jogador, MotivoFim motivo) {
         if (!jogador.marcarDesconectado()) {
             return;

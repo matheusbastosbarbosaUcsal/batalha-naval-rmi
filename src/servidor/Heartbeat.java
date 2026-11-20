@@ -32,6 +32,8 @@ public class Heartbeat {
         pings.shutdownNow();
     }
 
+    // de 5 em 5 segundos chama ping() em todo jogador conectado. cada ping vai numa thread separada,
+    // assim um cliente que não responde não atrasa a verificação dos outros
     private void verificar() {
         try {
             for (Jogador jogador : gerenciador.todosJogadores()) {

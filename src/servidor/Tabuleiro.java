@@ -35,6 +35,8 @@ public class Tabuleiro {
                     "A frota deve ter exatamente " + TipoNavio.values().length + " navios.");
         }
 
+        // valida tudo numa grade separada e só copia pro tabuleiro no final.
+        // se algum navio estiver errado nada fica gravado pela metade
         TipoNavio[][] grade = new TipoNavio[N][N];
         Map<TipoNavio, Integer> tamanhos = new EnumMap<>(TipoNavio.class);
 
@@ -88,6 +90,7 @@ public class Tabuleiro {
             return new ResultadoTiro(x, y, TipoResultado.AGUA, null, false);
         }
 
+        // cada navio guarda quantas casas faltam acertar. chegou a zero, afundou
         int restantes = celulasRestantes.merge(alvo, -1, Integer::sum);
         if (restantes > 0) {
             return new ResultadoTiro(x, y, TipoResultado.ACERTO, null, false);
@@ -120,6 +123,7 @@ public class Tabuleiro {
         return visao;
     }
 
+    // o adversário só enxerga as casas onde já atirou. a posição dos navios nunca sai do servidor
     public EstadoCelula[][] visaoDoAdversario() {
         EstadoCelula[][] visao = new EstadoCelula[N][N];
         for (int y = 0; y < N; y++) {

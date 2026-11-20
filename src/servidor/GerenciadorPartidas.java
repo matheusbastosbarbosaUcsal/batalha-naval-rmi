@@ -11,6 +11,8 @@ public class GerenciadorPartidas {
     private final Map<String, String> nomesEmUso = new ConcurrentHashMap<>();
     private final Map<String, Partida> partidas = new ConcurrentHashMap<>();
 
+    // o putIfAbsent é atômico: se dois clientes pedem o mesmo nome juntos, só um consegue.
+    // o toLowerCase faz "Ana" e "ana" contarem como o mesmo nome
     public boolean reservarNome(String nome, String jogadorId) {
         return nomesEmUso.putIfAbsent(nome.toLowerCase(), jogadorId) == null;
     }
@@ -29,6 +31,7 @@ public class GerenciadorPartidas {
 
     public void removerJogador(Jogador jogador) {
         jogadores.remove(jogador.id());
+        // só libera o nome se ele ainda for desse jogador
         nomesEmUso.remove(jogador.nome().toLowerCase(), jogador.id());
     }
 

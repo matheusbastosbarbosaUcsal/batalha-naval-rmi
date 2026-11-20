@@ -4,6 +4,9 @@ import java.io.ObjectInputFilter;
 import java.lang.reflect.Proxy;
 import java.util.List;
 
+// todo objeto que chega pela rede é desserializado antes de chegar no método.
+// o filtro só deixa passar classes do jogo e do Java básico, o resto é recusado antes de ser criado.
+// os limites de profundidade e de array impedem alguém de mandar um objeto gigante
 public final class FiltroDesserializacao {
     private static final int PROFUNDIDADE_MAXIMA = 20;
     private static final int TAMANHO_MAXIMO_ARRAY = 1_000;

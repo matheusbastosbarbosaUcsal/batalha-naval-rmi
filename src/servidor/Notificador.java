@@ -18,6 +18,8 @@ public class Notificador {
         void executar(ClienteCallbackInterface callback) throws RemoteException;
     }
 
+    // uma fila com uma thread só pra cada jogador. os avisos chegam na mesma ordem em que
+    // aconteceram, e se um cliente travar só a fila dele atrasa
     private final Map<String, ExecutorService> filas = new ConcurrentHashMap<>();
     private volatile Consumer<Jogador> aoFalhar = jogador -> { };
 
@@ -63,6 +65,7 @@ public class Notificador {
                 try {
                     chamada.executar(destino.callback());
                 } catch (RemoteException e) {
+                    // callback que falhou ou passou do responseTimeout: o jogador é tratado como desconectado
                     Log.info("falha ao chamar %s em %s: %s", metodo, destino.nome(), e.getClass().getSimpleName());
                     aoFalhar.accept(destino);
                 }

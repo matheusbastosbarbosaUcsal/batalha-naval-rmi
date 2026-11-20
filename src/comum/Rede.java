@@ -13,6 +13,8 @@ import java.util.List;
 public final class Rede {
     private Rede() { }
 
+    // o connect de UDP não manda nada pela rede, só faz o sistema escolher a placa de rede
+    // que chega no servidor. o IP dessa placa é o que o servidor vai usar pra chamar a gente de volta
     public static String ipLocalPara(String destino) {
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.connect(InetAddress.getByName(destino), Constantes.PORTA_REGISTRY);
