@@ -69,11 +69,9 @@ public class JanelaPrincipal extends JFrame {
     private static final Color COR_TEXTO = new Color(0xECF0F1);
     private static final Color COR_TEXTO_FRACO = new Color(0x94A3B8);
     private static final Color COR_GRADE = new Color(0x1E293B);
-    private static final Color COR_NAVIO = new Color(0x0284C7);
     private static final Color COR_AGUA = new Color(0x0C4A6E);
-    private static final Color COR_PINGO_AGUA = new Color(0x38BDF8);
-    private static final Color COR_ACERTO = new Color(0xEF4444);
-    private static final Color COR_MIRA = new Color(0x334155);
+    private static final Color COR_ACERTO = new Color(0x7F1D1D);
+    private static final Color COR_MIRA = new Color(0x64748B);
     private static final Color COR_PREVIA_OK = new Color(0x10B981);
     private static final Color COR_PREVIA_RUIM = new Color(0xB91C1C);
     private static final Color COR_REMOVER = new Color(0x7DD3FC);
@@ -96,7 +94,7 @@ public class JanelaPrincipal extends JFrame {
 
     private final transient Map<TipoNavio, Navio> frota = new EnumMap<>(TipoNavio.class);
     private final Map<TipoNavio, JButton> botoesNavio = new EnumMap<>(TipoNavio.class);
-    private final JButton[][] gradePosicionamento = new JButton[N][N];
+    private final Celula[][] gradePosicionamento = new Celula[N][N];
     private TipoNavio navioSelecionado = TipoNavio.PORTA_AVIOES;
     private Orientacao orientacao = Orientacao.HORIZONTAL;
     private int mouseX = -1;
@@ -109,9 +107,12 @@ public class JanelaPrincipal extends JFrame {
     private JButton botaoConfirmar;
     private boolean enviandoFrota;
 
-    private final JButton[][] gradeMinha = new JButton[N][N];
-    private final JButton[][] gradeRadar = new JButton[N][N];
+    private final Celula[][] gradeMinha = new Celula[N][N];
+    private final Celula[][] gradeRadar = new Celula[N][N];
     private final EstadoCelula[][] radar = new EstadoCelula[N][N];
+    // pra cada casa do meu tabuleiro: qual navio está ali e qual pedaço dele, pra desenhar certo
+    private final transient Navio[][] meusNavios = new Navio[N][N];
+    private final int[][] pedacos = new int[N][N];
     private final List<String> afundeiDele = new ArrayList<>();
     private final List<String> perdiMeus = new ArrayList<>();
     private String adversario = "";
@@ -192,14 +193,22 @@ public class JanelaPrincipal extends JFrame {
 
         for (int y = 0; y < N; y++) {
             for (int x = 0; x < N; x++) {
-                radar[y][x] = EstadoCelula.DESCONHECIDA;
-                pintarRadar(x, y);
-                pintarMinha(x, y, EstadoCelula.VAZIA);
+                meusNavios[y][x] = null;
             }
         }
         for (Navio navio : frota.values()) {
-            for (int[] c : celulas(navio)) {
-                pintarMinha(c[0], c[1], EstadoCelula.NAVIO);
+            List<int[]> casas = celulas(navio);
+            for (int i = 0; i < casas.size(); i++) {
+                int[] c = casas.get(i);
+                meusNavios[c[1]][c[0]] = navio;
+                pedacos[c[1]][c[0]] = i;
+            }
+        }
+        for (int y = 0; y < N; y++) {
+            for (int x = 0; x < N; x++) {
+                radar[y][x] = EstadoCelula.DESCONHECIDA;
+                pintarRadar(x, y);
+                pintarMinha(x, y, meusNavios[y][x] != null ? EstadoCelula.NAVIO : EstadoCelula.VAZIA);
             }
         }
 
@@ -396,7 +405,7 @@ public class JanelaPrincipal extends JFrame {
             for (int x = 0; x < N; x++) {
                 int cx = x;
                 int cy = y;
-                JButton celula = gradePosicionamento[y][x];
+                Celula celula = gradePosicionamento[y][x];
                 celula.addActionListener(e -> clicarPosicionamento(cx, cy));
                 celula.addMouseListener(new MouseAdapter() {
                     @Override
@@ -432,6 +441,8 @@ public class JanelaPrincipal extends JFrame {
         lateral.add(Box.createVerticalStrut(8));
         for (TipoNavio tipo : TipoNavio.values()) {
             JButton botao = botao("", COR_GRADE);
+            botao.setIcon(DesenhoNavio.icone(tipo, 12));
+            botao.setIconTextGap(10);
             botao.setToolTipText("Clique para escolher. Se já estiver no tabuleiro, ele sai para você colocar de novo.");
             botao.addActionListener(e -> escolherNavio(tipo));
             botoesNavio.put(tipo, botao);
@@ -540,13 +551,11 @@ public class JanelaPrincipal extends JFrame {
     private void atualizarPosicionamento() {
         for (int y = 0; y < N; y++) {
             for (int x = 0; x < N; x++) {
-                pintar(gradePosicionamento[y][x], COR_GRADE, "", COR_TEXTO);
+                gradePosicionamento[y][x].limpar(COR_GRADE);
             }
         }
         for (Navio navio : frota.values()) {
-            for (int[] c : celulas(navio)) {
-                pintar(gradePosicionamento[c[1]][c[0]], COR_NAVIO, "", COR_TEXTO);
-            }
+            desenharNavio(gradePosicionamento, navio, false);
         }
 
         // mostra onde o navio vai ficar antes do clique: verde se cabe, vermelho se não.
@@ -555,15 +564,18 @@ public class JanelaPrincipal extends JFrame {
             TipoNavio embaixo = navioEm(mouseX, mouseY);
             if (embaixo != null) {
                 for (int[] c : celulas(frota.get(embaixo))) {
-                    pintar(gradePosicionamento[c[1]][c[0]], COR_REMOVER, "", COR_FUNDO);
+                    gradePosicionamento[c[1]][c[0]].setDestaque(COR_REMOVER);
                 }
             } else if (navioSelecionado != null) {
                 Navio previa = new Navio(navioSelecionado, mouseX, mouseY, orientacao);
-                Color cor = cabe(previa) ? COR_PREVIA_OK : COR_PREVIA_RUIM;
+                boolean cabe = cabe(previa);
                 for (int[] c : celulas(previa)) {
                     if (dentro(c[0], c[1])) {
-                        pintar(gradePosicionamento[c[1]][c[0]], cor, "", COR_TEXTO);
+                        gradePosicionamento[c[1]][c[0]].setDestaque(cabe ? COR_PREVIA_OK : COR_PREVIA_RUIM);
                     }
+                }
+                if (cabe) {
+                    desenharNavio(gradePosicionamento, previa, true);
                 }
             }
         }
@@ -571,7 +583,7 @@ public class JanelaPrincipal extends JFrame {
         for (TipoNavio tipo : TipoNavio.values()) {
             JButton botao = botoesNavio.get(tipo);
             boolean colocado = frota.containsKey(tipo);
-            botao.setText(nomeDe(tipo) + " (" + tipo.tamanho + ")" + (colocado ? "  - colocado" : ""));
+            botao.setText(nomeDe(tipo) + (colocado ? "  (no mar)" : ""));
             botao.setBackground(tipo == navioSelecionado ? COR_AZUL : COR_GRADE);
             botao.setForeground(colocado ? COR_TEXTO_FRACO : COR_TEXTO);
         }
@@ -612,6 +624,14 @@ public class JanelaPrincipal extends JFrame {
             }
         }
         return true;
+    }
+
+    private static void desenharNavio(Celula[][] grade, Navio navio, boolean apagado) {
+        List<int[]> casas = celulas(navio);
+        for (int i = 0; i < casas.size(); i++) {
+            int[] c = casas.get(i);
+            grade[c[1]][c[0]].setNavio(navio.tipo(), navio.orientacao(), i, apagado);
+        }
     }
 
     private TipoNavio navioEm(int x, int y) {
@@ -670,19 +690,19 @@ public class JanelaPrincipal extends JFrame {
             for (int x = 0; x < N; x++) {
                 int cx = x;
                 int cy = y;
-                JButton celula = gradeRadar[y][x];
+                Celula celula = gradeRadar[y][x];
                 celula.addActionListener(e -> clicarRadar(cx, cy));
                 celula.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mouseEntered(MouseEvent e) {
                         if (minhaVez && radar[cy][cx] == EstadoCelula.DESCONHECIDA) {
-                            pintar(celula, COR_MIRA, "", COR_TEXTO);
+                            celula.setDestaque(COR_MIRA);
                         }
                     }
 
                     @Override
                     public void mouseExited(MouseEvent e) {
-                        pintarRadar(cx, cy);
+                        celula.setDestaque(null);
                     }
                 });
             }
@@ -747,26 +767,38 @@ public class JanelaPrincipal extends JFrame {
         controlador.desistir();
     }
 
+    // no meu tabuleiro o navio vem da frota que eu montei, e o servidor só diz onde levou tiro
     private void pintarMinha(int x, int y, EstadoCelula estado) {
-        JButton celula = gradeMinha[y][x];
-        switch (estado) {
-            case NAVIO -> pintar(celula, COR_NAVIO, "", COR_TEXTO);
-            case AGUA -> pintar(celula, COR_AGUA, "•", COR_PINGO_AGUA);
-            case ACERTO -> pintar(celula, COR_ACERTO, "X", Color.WHITE);
-            default -> pintar(celula, COR_GRADE, "", COR_TEXTO);
+        Celula celula = gradeMinha[y][x];
+        celula.limpar(estado == EstadoCelula.AGUA ? COR_AGUA : COR_GRADE);
+        Navio navio = meusNavios[y][x];
+        if (navio != null) {
+            celula.setNavio(navio.tipo(), navio.orientacao(), pedacos[y][x], false);
+        }
+        if (estado == EstadoCelula.AGUA) {
+            celula.setMarca(Celula.Marca.AGUA);
+        } else if (estado == EstadoCelula.ACERTO) {
+            celula.setMarca(Celula.Marca.ACERTO);
         }
     }
 
+    // do adversário a gente não sabe onde estão os navios, só o resultado de cada tiro
     private void pintarRadar(int x, int y) {
-        JButton celula = gradeRadar[y][x];
+        Celula celula = gradeRadar[y][x];
         switch (radar[y][x]) {
-            case AGUA -> pintar(celula, COR_AGUA, "•", COR_PINGO_AGUA);
-            case ACERTO -> pintar(celula, COR_ACERTO, "X", Color.WHITE);
-            default -> pintar(celula, COR_GRADE, "", COR_TEXTO);
+            case AGUA -> {
+                celula.limpar(COR_AGUA);
+                celula.setMarca(Celula.Marca.AGUA);
+            }
+            case ACERTO -> {
+                celula.limpar(COR_ACERTO);
+                celula.setMarca(Celula.Marca.ACERTO);
+            }
+            default -> celula.limpar(COR_GRADE);
         }
     }
 
-    private JPanel grade(JButton[][] botoes) {
+    private JPanel grade(Celula[][] botoes) {
         JPanel grade = new JPanel(new GridLayout(N + 1, N + 1, 3, 3));
         grade.setOpaque(false);
         grade.setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -777,12 +809,8 @@ public class JanelaPrincipal extends JFrame {
         for (int y = 0; y < N; y++) {
             grade.add(rotulo(String.valueOf((char) ('A' + y))));
             for (int x = 0; x < N; x++) {
-                JButton celula = new JButton();
-                celula.setFocusPainted(false);
-                celula.setMargin(new Insets(0, 0, 0, 0));
-                celula.setFont(new Font("Segoe UI", Font.BOLD, 16));
+                Celula celula = new Celula(COR_GRADE);
                 celula.setBorder(new LineBorder(COR_BORDA, 1));
-                pintar(celula, COR_GRADE, "", COR_TEXTO);
                 botoes[y][x] = celula;
                 grade.add(celula);
             }
@@ -802,12 +830,6 @@ public class JanelaPrincipal extends JFrame {
             case SUBMARINO -> "Submarino";
             case CONTRATORPEDEIRO -> "Contratorpedeiro";
         };
-    }
-
-    private static void pintar(JButton botao, Color fundo, String texto, Color corTexto) {
-        botao.setBackground(fundo);
-        botao.setText(texto);
-        botao.setForeground(corTexto);
     }
 
     private static JPanel fundo(LayoutManager layout) {
